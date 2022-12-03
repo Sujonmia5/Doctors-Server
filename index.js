@@ -5,6 +5,7 @@ const port = process.env.PORT || 5500;
 const cors = require('cors')
 const jwt = require('jsonwebtoken')
 require('dotenv').config()
+const stripe = require("stripe")(process.env.stripe_key);
 
 app.use(cors())
 app.use(express.json())
@@ -40,6 +41,7 @@ async function run() {
         const bookingsCollection = client.db('Doctor-Server').collection('bookings')
         const usersCollection = client.db('Doctor-Server').collection('users')
         const doctorCollection = client.db('Doctor-Server').collection('Doctors')
+        const paymentsCollection = client.db('Doctor-Server').collection('payments')
 
         app.put('/addPrice', async (req, res) => {
             const filter = {}
@@ -143,6 +145,14 @@ async function run() {
             res.send(options)
         })
 
+        app.get('/payments/:id', async (req, res) => {
+            const id = req.params.id
+            // console.log(id);
+            const query = { _id: ObjectId(id) }
+            const result = await bookingsCollection.findOne(query)
+            res.send(result)
+        })
+
         app.get('/bookings', JWTFunction, async (req, res) => {
             const email = req.query.email;
             const decodedEmail = req.decoded?.email;
@@ -155,6 +165,36 @@ async function run() {
             }
             const result = await bookingsCollection.find(query).toArray()
             res.send(result);
+        })
+
+        app.post("/create-payment-intent", async (req, res) => {
+            const booking = req.body;
+            const amount = booking.price * 100;
+            const paymentIntent = await stripe.paymentIntents.create({
+                currency: 'usd',
+                amount,
+                "payment_method_types": [
+                    "card"
+                ],
+            })
+            res.send({
+                clientSecret: paymentIntent.client_secret,
+            });
+
+        });
+
+        app.post('/payments', async (req, res) => {
+            const data = req.body;
+            const result = await paymentsCollection.insertOne(data)
+            const id = data.bookingId
+            const filter = { _id: ObjectId(id) }
+            const docs = {
+                $set: {
+                    paid: true
+                }
+            }
+            const payment = await bookingsCollection.updateOne(filter, docs)
+            res.send(result)
         })
 
         app.post('/booking', async (req, res) => {
@@ -172,6 +212,7 @@ async function run() {
             const result = await bookingsCollection.insertOne(booking);
             res.send(result);
         })
+
 
         app.delete('/userdeleted/:id', JWTFunction, async (req, res) => {
             const id = req.params.id;
